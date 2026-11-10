@@ -131,6 +131,11 @@ def trace(paths, slug, private_ids=()):
     end = next((i for i, x in enumerate(span) if END.match(x["prompt"])), None)
     span = span if end is None else span[: end + 1]
 
+    valid_ids = {f"x{i}" for i in range(1, len(span) + 1)}
+    unknown = sorted(set(private_ids) - valid_ids)
+    if unknown:
+        raise SpanError(f"--private names {', '.join(unknown)}, which isn't in this post (x1 to x{len(span)})")
+
     out, gap = [{"ledger_trace": 1, "post": slug}], None
     for n, x in enumerate(span, 1):
         xid = f"x{n}"

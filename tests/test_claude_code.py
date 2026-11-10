@@ -151,3 +151,17 @@ def test_cli_reports_a_missing_start(tmp_path, capsys):
     assert cli.main(["import-claude-code", "--post", "nope", "--out", str(tmp_path / "o"),
                      str(write(tmp_path, SESSION))]) == 1
     assert "no prompt starting 'ledger start nope'" in capsys.readouterr().err
+
+
+def test_unknown_private_id_is_refused(tmp_path):
+    with pytest.raises(claude_code.SpanError, match="x7.*x1 to x6"):
+        claude_code.trace([write(tmp_path, SESSION)], "slower-software", {"x7"})
+
+
+def test_cli_refuses_an_unknown_private_id(tmp_path, capsys):
+    out = tmp_path / "post"
+    code = cli.main(["import-claude-code", "--post", "slower-software", "--out", str(out),
+                     "--private", "x7", str(write(tmp_path, SESSION))])
+    assert code == 1
+    assert "x7" in capsys.readouterr().err
+    assert not (out / "trace.jsonl").exists()
