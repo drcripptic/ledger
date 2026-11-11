@@ -12,7 +12,9 @@ The writer's prompts:
 - a record with type "user", message.content a non-empty string, not isMeta, not
   isCompactSummary, not isSidechain, and origin.kind "human" or no origin;
 - an attachment record whose attachment.type is "queued_command" (typed while the AI was busy),
-  with attachment.prompt a non-empty string and commandMode "prompt" or absent.
+  with attachment.prompt a non-empty string, commandMode "prompt" or absent, and
+  attachment.origin.kind "human" or no attachment.origin (a message from another session
+  has kind "peer").
 - Not a prompt: "[Request interrupted by user]" (or text starting with it).
 The prompt text is stripped. Markers (`ledger start <slug>`, `ledger end`, `ledger private`)
 are ordinary prompts here.
@@ -188,6 +190,22 @@ def test_messages_typed_while_busy_are_prompts(tmp_path):
     assert [x["prompt"] for x in xs] == ["One.", "Also this."]
     assert [x["n"] for x in xs] == [1, 2]
     assert xs[1]["reply"] == "Done both."
+
+
+def test_message_from_another_session_is_not_a_prompt(tmp_path):
+    from_peer = queued("A message from another session.")
+    from_peer["attachment"]["origin"] = {"kind": "peer"}
+    from_writer = queued("Typed while busy.")
+    from_writer["attachment"]["origin"] = {"kind": "human"}
+    p = write(tmp_path, [
+        prompt("One."),
+        assistant(text("Working.")),
+        from_peer,
+        from_writer,
+        assistant(text("Done.")),
+    ])
+    assert [x["prompt"] for x in exchanges(p)] == ["One.", "Typed while busy."]
+    assert prompt_index(p) == 2
 
 
 def test_thinking_is_dropped_and_synthetic_model_ignored(tmp_path):
