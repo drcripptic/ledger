@@ -38,6 +38,9 @@ def _is_queued_command(record):
     mode = attachment.get("commandMode")
     if mode is not None and mode != "prompt":
         return False
+    origin = attachment.get("origin")
+    if origin and origin.get("kind") != "human":
+        return False
     return True
 
 
