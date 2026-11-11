@@ -10,11 +10,12 @@ PYTHON ?= $(shell for p in python3.15 python3.14 python3.13 python3.12 python3.1
 test: .venv/done
 	.venv/bin/python -m pytest -q tests
 
-.venv/done: requirements-dev.txt
+.venv/done: requirements-dev.txt pyproject.toml
 	@test -n "$(PYTHON)" || { echo "make: no Python 3.10 or later on PATH; set PYTHON=/path/to/python3.10+" >&2; exit 1; }
 	rm -rf .venv
 	$(PYTHON) -m venv .venv
 	.venv/bin/python -m pip install -q --disable-pip-version-check -r requirements-dev.txt
+	.venv/bin/python -m pip install -q --disable-pip-version-check --no-build-isolation -e .
 	touch $@
 
 clean:
