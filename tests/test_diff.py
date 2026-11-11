@@ -9,6 +9,8 @@ and the post's new text, and returns new runs.
 - Tokens are compared by their word alone (whitespace stripped) and aligned with
   difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes().
 - Runs in `before` with state "removed" are dropped first: they never carry forward.
+- The old tokens come from the kept runs' text joined together, so a run may end mid-word.
+  Each old token's `by` is the `by` of the run holding its first character.
 - equal: the new text's tokens, keeping the `by` of the matching old tokens, state "kept".
   delete: the old tokens, keeping their `by`, state "removed".
   insert: the new tokens, with the given `by`, state "added".
@@ -116,3 +118,12 @@ def test_new_text_is_rebuilt_exactly():
     after = "The slow brown fox.\n\nIt ran away.\n\nThe end."
     runs = diff(before, after, "writer")
     assert "".join(r.text for r in runs if r.state != "removed") == after
+
+
+def test_runs_ending_mid_word_take_the_author_of_the_first_character():
+    before = [
+        Run("a", "ai", "kept"),
+        Run("b", "writer", "kept"),
+        Run("c d", "ai", "kept"),
+    ]
+    assert diff(before, "abc d", "writer") == [Run("abc d", "ai", "kept")]
