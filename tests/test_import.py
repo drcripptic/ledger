@@ -3,7 +3,8 @@
 ledger.importer.import_claude_code(slug, transcripts, root) imports one post's history from
 Claude Code transcripts into <root>/<slug>/trace.jsonl, and returns how many exchanges it
 added (withheld ones included). `ledger import-claude-code <slug> [transcript ...]` does the
-same from the command line, with root the current folder.
+same from the command line, with root the current folder, and prints nothing to stderr when
+it succeeds.
 
 Transcripts:
 - The given transcript paths, plus every <root>/.ledger/transcripts/*.jsonl (saved copies).
@@ -227,6 +228,7 @@ def test_the_command(tmp_path):
     t = transcript(tmp_path / "s1.jsonl", turn("ledger start a-post", 1), turn("Draft it.", 2))
     r = subprocess.run([str(LEDGER), "import-claude-code", "a-post", str(t)], capture_output=True, text=True, cwd=tmp_path)
     assert r.returncode == 0
+    assert r.stderr == ""
     assert prompts(trace(tmp_path)) == ["Draft it."]
     r = subprocess.run([str(LEDGER), "import-claude-code", "no-such-post", str(t)], capture_output=True, text=True, cwd=tmp_path)
     assert r.returncode == 1
