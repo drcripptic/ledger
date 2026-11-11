@@ -1,6 +1,6 @@
 # 0003: The post page is a replay, the writer's changes are told apart from the AI's, and a post can be revised
 
-Status: proposed, 11 Nov 2026. It replaces "What the reader sees" in decision 0002, and two more lines of 0002: the published site needs no JavaScript, and `docs/` holds no `attribution.json`. It changes decision 0001's trace format as set out under "The trace" below, and replaces 0001's secret scan with the one in `ledger publish`. The writer agrees 0001 and this decision together.
+Status: accepted, 11 Nov 2026. It replaces "What the reader sees" in decision 0002, and two more lines of 0002: the published site needs no JavaScript, and `docs/` holds no `attribution.json`. It changes decision 0001's trace format as set out under "The trace" below, and replaces 0001's secret scan with the one in `ledger publish`. The writer agrees 0001 and this decision together.
 
 ## The problem
 
