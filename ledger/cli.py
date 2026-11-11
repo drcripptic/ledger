@@ -3,6 +3,8 @@
 import argparse
 import sys
 
+from ledger.importer import import_claude_code
+
 
 def cmd_start(args):
     """Start recording for a post."""
@@ -20,6 +22,20 @@ def cmd_end(args):
 def cmd_private(args):
     """Mark as private."""
     print("Recording.")
+
+
+def cmd_import_claude_code(args):
+    """Import Claude Code transcripts for a post."""
+    if not args.slug:
+        print("Error: import-claude-code requires a slug argument", file=sys.stderr)
+        sys.exit(1)
+    try:
+        count = import_claude_code(args.slug, args.transcripts, args.root)
+        print(f"Added {count} exchanges")
+        sys.exit(0)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def main():
@@ -42,7 +58,14 @@ def main():
     # private subcommand
     private_parser = subparsers.add_parser("private", help="Mark as private")
     private_parser.set_defaults(func=cmd_private)
-    
+
+    # import-claude-code subcommand
+    import_parser = subparsers.add_parser("import-claude-code", help="Import Claude Code transcripts for a post")
+    import_parser.add_argument("slug", nargs="?", default="", help="Post slug")
+    import_parser.add_argument("transcripts", nargs="*", default=[], help="Transcript paths")
+    import_parser.add_argument("--root", default=".", help="Root directory")
+    import_parser.set_defaults(func=cmd_import_claude_code)
+
     args = parser.parse_args()
     
     if args.command is None:
