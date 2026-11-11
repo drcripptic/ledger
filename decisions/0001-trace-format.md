@@ -1,6 +1,6 @@
 # 0001: The trace format
 
-Status: proposed, 30 Oct 2026.
+Status: accepted, 11 Nov 2026, with the changes in decision 0003. Proposed 30 Oct 2026.
 
 ## Context
 
@@ -79,4 +79,4 @@ Withheld exchanges are dropped when the trace is written, so they can't reach a 
 
 ## Undo
 
-Supersede this file with a new decision. Nothing is built on it yet.
+Supersede this file with a new decision.
