@@ -31,4 +31,7 @@ def test_markers_do_nothing_but_say_recording(tmp_path):
 
 
 def test_start_needs_a_slug(tmp_path):
-    assert run("start", cwd=tmp_path).returncode != 0
+    result = run("start", cwd=tmp_path)
+    assert result.returncode != 0
+    assert "slug" in result.stderr
+    assert "Traceback" not in result.stderr
