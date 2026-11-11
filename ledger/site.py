@@ -44,11 +44,18 @@ def diff(before: list[Run], after_text: str, by: str) -> list[Run]:
     before_tokens = _tokenize(before_text)
     before_words = [_word(t) for t in before_tokens]
 
-    # Map tokens to their run's by value
-    token_to_by: list[str] = []
+    # Map each character position to its run's by value
+    char_to_by: list[str] = []
     for run in kept_runs:
-        run_tokens = _tokenize(run.text)
-        token_to_by.extend([run.by] * len(run_tokens))
+        char_to_by.extend([run.by] * len(run.text))
+
+    # Determine each token's by from the run holding its first character
+    token_to_by: list[str] = []
+    pos = 0
+    for token in before_tokens:
+        if pos < len(char_to_by):
+            token_to_by.append(char_to_by[pos])
+        pos += len(token)
 
     matcher = SequenceMatcher(None, before_words, after_words, autojunk=False)
 
