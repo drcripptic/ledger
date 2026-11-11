@@ -36,6 +36,10 @@ Possible next features, none of them committed:
 
 `make test` needs Python 3.10 or later on `PATH` (pytest 9.1.1 won't install on older). It makes `.venv` from `requirements-dev.txt` the first time, picking the newest `python3.N` it finds, or `make test PYTHON=/path/to/python3`.
 
+## Installing and testing
+
+Python 3.10 or later. `pip install -e .` installs the `ledger` command. `make test` makes `.venv` the first time, with the command installed in it, and runs the tests; `make test PYTHON=/path/to/python3` picks the Python.
+
 ## Contributing
 
 It's early. Issues with ideas and questions are welcome.
