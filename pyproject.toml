@@ -1,0 +1,15 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ledger"
+version = "0.1.0"
+description = "CLI for ledger - replay of exchanges"
+requires-python = ">=3.10"
+
+[tool.setuptools.packages.find]
+include = ["ledger*"]
+
+[project.scripts]
+ledger = "ledger.cli:main"
