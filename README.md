@@ -32,10 +32,6 @@ Possible next features, none of them committed:
 - **Source labelling:** automatically marking claims with where they came from.
 - Others as the project develops.
 
-## Running the tests
-
-`make test` needs Python 3.10 or later on `PATH` (pytest 9.1.1 won't install on older). It makes `.venv` from `requirements-dev.txt` the first time, picking the newest `python3.N` it finds, or `make test PYTHON=/path/to/python3`.
-
 ## Contributing
 
 It's early. Issues with ideas and questions are welcome.
