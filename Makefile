@@ -8,6 +8,7 @@ PYTHON ?= $(shell for p in python3.15 python3.14 python3.13 python3.12 python3.1
 	done)
 
 test: .venv/done
+	test ! -f pyproject.toml || .venv/bin/python -m pip install -q --disable-pip-version-check --no-build-isolation --no-deps --no-index -e .
 	.venv/bin/python -m pytest -q tests
 
 .venv/done: requirements-dev.txt
