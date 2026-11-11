@@ -2,11 +2,11 @@
 
 Status: accepted, 11 Nov 2026. This file records decisions taken on the v0 plan (issue 2) between 30 Oct and 11 Nov 2026. Until now they lived only in that issue's text.
 
-## Context
+## The problem
 
 ledger's design was agreed in issue 2 and its comments: what the reader sees, and where it's hosted. Nothing at the start of a session reads that issue, so its decisions were lost from one session to the next. Twice, a plan put post text in the wrong repo. This file gives them one home. Any plan that touches where posts live, or how they're published, cites it.
 
-## Decision
+## Agreed
 
 ### The product's principle (the writer, 11 Nov 2026)
 
@@ -39,6 +39,10 @@ Repos hold the data for the MVP (the writer, 11 Nov 2026). Once the writer's and
 - The post, with its full AI history beside it, from any AI model.
 - Exchanges the writer marked private show as a visible gap ("2 exchanges withheld by the writer"), never removed silently.
 - Tool calls are shown as collapsed lines under each reply, which open to the details.
+
+## Open
+
+- A long-term home for the data, such as a hosted service, once the writer's and the reader's experience is settled (see Two repos, for the MVP).
 
 ## Consequences
 
