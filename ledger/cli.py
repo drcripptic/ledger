@@ -1,7 +1,7 @@
 """CLI for ledger - replay of exchanges."""
 
 import argparse
-from pathlib import Path
+import sys
 
 
 def cmd_start(args):
@@ -53,5 +53,4 @@ def main():
 
 
 if __name__ == "__main__":
-    import sys
     main()
