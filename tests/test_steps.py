@@ -154,3 +154,18 @@ def test_published_ends_a_withheld_fold():
     s = steps([x("x1"), withheld("x2"), snap("ai", "x2", "Hidden draft."), published(1), snap("writer", "x2", "Final.")])
     assert [st.kind for st in s] == ["exchange", "withheld", "published", "writer"]
     assert s[3].runs == [Run("Hidden draft.", "ai", "removed"), Run("Final.", "writer", "added")]
+
+
+def test_mixed_keeps_added_text_before_a_later_range():
+    after = "New. Keep. AI part here."
+    i = after.index("AI")
+    s = steps([x("x1"), snap("ai", "x1", "Keep."), snap("mixed", "x1", after, ai=[[i, len(after)]])])
+    assert s[1].runs == [Run("New. ", "writer", "added"), Run("Keep. ", "ai", "kept"), Run("AI part here.", "ai", "added")]
+
+
+def test_two_withheld_records_are_two_steps():
+    s = steps([x("x1"), withheld("x2"), snap("writer", "x2", "A."), withheld("x3", "x4"), snap("ai", "x4", "A. B."), x("x5")])
+    assert [(st.kind, st.id, st.label) for st in s] == [
+        ("exchange", "x1", "x1"), ("withheld", "withheld-1", "1 withheld"), ("withheld", "withheld-2", "2 withheld"), ("exchange", "x5", "x5")]
+    assert s[1].runs == [Run("A.", "writer", "kept")]
+    assert s[2].runs == [Run("A. ", "writer", "kept"), Run("B.", "ai", "kept")]
