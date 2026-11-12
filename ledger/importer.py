@@ -8,20 +8,16 @@ from ledger.claude_code import exchanges
 
 def _read_private_ids(post_dir):
     """Read private ids from post.md front matter."""
-    import sys
     post_md = post_dir / "post.md"
     if not post_md.exists():
-        print(f"DEBUG _read: no post.md", file=sys.stderr)
         return set()
     text = post_md.read_text()
-    print(f"DEBUG _read: text={repr(text[:50])}", file=sys.stderr)
     if not text.startswith("---"):
         return set()
     end = text.find("---", 3)
     if end < 0:
         return set()
     front_matter = text[4:end]
-    print(f"DEBUG _read: front_matter={repr(front_matter)}", file=sys.stderr)
     for line in front_matter.splitlines():
         stripped = line.strip()
         if stripped.startswith("private:"):
