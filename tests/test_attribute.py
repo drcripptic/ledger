@@ -88,3 +88,10 @@ def test_the_writers_own_text():
 def test_text_only_in_a_later_corpus_is_not_matched():
     after = "Cities grow along the rivers that first gave them water and trade."
     assert attribute("", after, REPLY) == []
+
+
+def test_removed_text_does_not_shift_the_ranges():
+    before = "Keep this. Drop these old words here. End."
+    after = "Keep this. End. The quick brown fox jumps over the lazy dog."
+    i = after.index("The quick")
+    assert attribute(before, after, CORPUS) == [[i, len(after)]]
