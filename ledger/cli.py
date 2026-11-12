@@ -70,6 +70,17 @@ def cmd_import_claude_code(args):
         sys.exit(1)
 
 
+def cmd_publish(args):
+    """Publish one post: import, scan, record the version, build the site."""
+    from ledger.publish import publish
+    try:
+        version = publish(args.slug, ".", args.transcripts, args.out)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    print(f"Published {args.slug} v{version}.")
+
+
 def cmd_site(args):
     """Build the site from a posts folder."""
     try:
@@ -113,6 +124,13 @@ def main():
     site_parser.add_argument("posts", default="posts", nargs="?", help="Posts folder")
     site_parser.add_argument("--out", default="docs", help="Output directory")
     site_parser.set_defaults(func=cmd_site)
+
+    # publish subcommand
+    publish_parser = subparsers.add_parser("publish", help="Publish one post")
+    publish_parser.add_argument("slug", help="Post slug")
+    publish_parser.add_argument("transcripts", nargs="*", default=[], help="Transcript paths")
+    publish_parser.add_argument("--out", default="docs", help="Output directory")
+    publish_parser.set_defaults(func=cmd_publish)
 
     # snapshot subcommand (for hooks)
     snapshot_parser = subparsers.add_parser("snapshot", help="Handle snapshot hooks")
