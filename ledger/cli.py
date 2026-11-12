@@ -1,10 +1,41 @@
 """CLI for ledger - replay of exchanges."""
 
 import argparse
+import json
+import os
 import sys
 
+from ledger.snapshot import hook as snapshot_hook
 from ledger.importer import import_claude_code
 from ledger.site import build
+from pathlib import Path
+
+
+def cmd_snapshot(args):
+    """Handle snapshot prompt/stop hooks."""
+    try:
+        event = args.event
+        payload_str = sys.stdin.read()
+
+        if not payload_str.strip():
+            sys.stdout.write("")
+            return
+
+        try:
+            payload = json.loads(payload_str)
+        except json.JSONDecodeError:
+            sys.stdout.write("")
+            return
+
+        root = os.environ.get("CLAUDE_PROJECT_DIR")
+        if not root:
+            root = payload.get("cwd", ".")
+
+        result = snapshot_hook(event, payload, Path(root))
+        sys.stdout.write(result)
+
+    except Exception:
+        pass
 
 
 def cmd_start(args):
@@ -82,6 +113,11 @@ def main():
     site_parser.add_argument("posts", default="posts", nargs="?", help="Posts folder")
     site_parser.add_argument("--out", default="docs", help="Output directory")
     site_parser.set_defaults(func=cmd_site)
+
+    # snapshot subcommand (for hooks)
+    snapshot_parser = subparsers.add_parser("snapshot", help="Handle snapshot hooks")
+    snapshot_parser.add_argument("event", help="Hook event type")
+    snapshot_parser.set_defaults(func=cmd_snapshot)
 
     args = parser.parse_args()
     
