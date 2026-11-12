@@ -315,11 +315,32 @@ def _parse_title(md: str) -> str:
     return "Untitled"
 
 
-def _strip_front_matter(text: str) -> str:
-    """Remove front matter block from text if present."""
+def _get_front_matter(text: str) -> str:
+    """Return the front matter block including trailing newlines, or empty string."""
     lines = text.split("\n")
     if not lines[0].strip() == "---":
+        return ""
+    i = 1
+    while i < len(lines) and lines[i].strip() != "---":
+        i += 1
+    if i >= len(lines):
+        return ""
+    # Front matter is lines[0..i] plus the newlines between them.
+    # If there are blank lines after line i, include those too (with their newlines).
+    end = i + 1  # Start from the line after closing ---
+    while end < len(lines) and lines[end].strip() == "":
+        end += 1  # Include all blank lines after closing ---
+    # Reconstruct: lines[0..end-1] joined with \n, plus trailing \n if original had content after
+    fm_lines = lines[:end]
+    result = "\n".join(fm_lines) + "\n"
+    return result
+
+def _strip_front_matter(text: str) -> str:
+    """Remove front matter block from text if present."""
+    fm = _get_front_matter(text)
+    if not fm:
         return text
+    lines = text.split("\n")
     i = 1
     while i < len(lines) and lines[i].strip() != "---":
         i += 1
@@ -354,7 +375,21 @@ ins.earlier.writer { opacity: 0.7; }
     for r in recs:
         if r.get("type") == "snapshot":
             r = dict(r)
-            r["text"] = _strip_front_matter(r["text"])
+            fm = _get_front_matter(r["text"])
+            if fm:
+                r["text"] = _strip_front_matter(r["text"])
+                # Adjust AI ranges for removed front matter
+                if "ai" in r:
+                    fm_len = len(fm)
+                    adjusted = []
+                    for start, end in r["ai"]:
+                        # Shift range past the front matter
+                        new_start = max(start - fm_len, 0)
+                        new_end = end - fm_len
+                        # Drop ranges entirely within the front matter (start < fm_len)
+                        if start >= fm_len and new_end > 0:
+                            adjusted.append([new_start, new_end])
+                    r["ai"] = adjusted
         stripped.append(r)
     step_list = steps(stripped)
 
