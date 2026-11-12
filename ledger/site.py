@@ -393,6 +393,20 @@ ins.earlier.writer { opacity: 0.7; }
         stripped.append(r)
     step_list = steps(stripped)
 
+    # Count published records and get the last one's date
+    published_records = [r for r in recs if r.get("type") == "published"]
+    revised_note = ""
+    if len(published_records) > 1:
+        revision_count = len(published_records) - 1
+        time_word = "time" if revision_count == 1 else "times"
+        last_pub = published_records[-1]
+        at = last_pub.get("at", "")
+        date_part = at[:10]
+        day, month_num, year = int(date_part[8:10]), int(date_part[5:7]), date_part[:4]
+        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        formatted_date = f"{day} {months[month_num - 1]} {year}"
+        revised_note = f'<p class="revised">Revised {revision_count} {time_word}, last on {formatted_date}.</p>'
+
     nav_links = []
     for step in step_list:
         label_esc = html.escape(step.label)
@@ -414,6 +428,8 @@ ins.earlier.writer { opacity: 0.7; }
 
     escaped_title = html.escape(title)
 
+    header_after = "" if not revised_note else revised_note + "\n"
+
     page = f'''<!doctype html>
 <html lang="en">
 <head>
@@ -424,7 +440,7 @@ ins.earlier.writer { opacity: 0.7; }
 </head>
 <body>
 <h1>{escaped_title}</h1>
-{nav_row}
+{header_after}{nav_row}
 <main>
 {sections}
 </main>
