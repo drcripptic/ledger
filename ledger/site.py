@@ -1,6 +1,7 @@
 """site.diff: diff by author."""
 
 from dataclasses import dataclass
+import html
 import re
 from difflib import SequenceMatcher
 
@@ -290,3 +291,59 @@ def _apply_mixed_diff(before: list[Run], text: str, ai_ranges: list[list[int]]) 
             joined.append(run)
 
     return joined
+
+
+def render_step(step: Step) -> str:
+    """Render a step as HTML."""
+    esc = lambda t: html.escape(t, quote=True)
+
+    lines = []
+    lines.append(f'<section id="{esc(step.id)}" class="step {esc(step.kind)}">')
+    lines.append('<div class="exchange">')
+
+    if step.kind == "exchange":
+        exchange = step.exchange
+        if exchange["model"] is not None:
+            lines.append(f'<div class="model">{esc(exchange["model"])}</div>')
+        lines.append(f'<div class="prompt">{esc(exchange["prompt"])}</div>')
+        lines.append(f'<div class="reply">{esc(exchange["reply"])}</div>')
+
+        for tool in exchange.get("tools") or []:
+            summary = esc(tool["summary"])
+            detail = esc(tool["detail"])
+            lines.append(f'<details class="tool"><summary>{summary}</summary><pre>{detail}</pre></details>')
+    else:
+        if step.kind == "writer":
+            text = "The writer&#x27;s own editing."
+        elif step.kind == "mixed":
+            text = "The writer&#x27;s editing, split from the AI&#x27;s by matching."
+        elif step.kind == "withheld":
+            n = int(step.label.split()[0])
+            suffix = "exchange" if n == 1 else "exchanges"
+            text = f"{n} {suffix} withheld by the writer."
+        elif step.kind == "published":
+            text = step.label + "."
+        else:
+            text = ""
+        lines.append(f'<p class="note">{text}</p>')
+
+    lines.append("</div>")
+
+    post_runs = []
+    for run in step.runs:
+        by = esc(run.by)
+        text = esc(run.text)
+        if run.state == "kept":
+            post_runs.append(f'<span class="{by}">{text}</span>')
+        elif run.state == "added":
+            if run.by == "writer":
+                post_runs.append(f'<ins class="{by}"><span class="mark">✎</span>{text}</ins>')
+            else:
+                post_runs.append(f'<ins class="{by}">{text}</ins>')
+        elif run.state == "removed":
+            post_runs.append(f'<del class="{by}">{text}</del>')
+
+    lines.append('<div class="post">' + "".join(post_runs) + '</div>')
+    lines.append('</section>')
+
+    return "\n".join(lines)
