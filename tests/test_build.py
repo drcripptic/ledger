@@ -60,7 +60,7 @@ def test_a_published_post_and_its_files(tmp_path):
     posts, out = tmp_path / "posts", tmp_path / "docs"
     d = post(posts, "a-post", "A post", [x("x1"), published(1, "2026-11-11T10:00:00Z")])
     assert build(posts, out) == ["a-post"]
-    assert files(out) == [".nojekyll", "a-post/index.html", "a-post/post.md", "a-post/trace.jsonl", "index.html"]
+    assert files(out) == [".nojekyll", "a-post/index.html", "a-post/post.md", "a-post/trace.jsonl", "a-post/v1/index.html", "index.html"]
     assert (out / ".nojekyll").read_text() == ""
     assert (out / "a-post" / "post.md").read_bytes() == (d / "post.md").read_bytes()
     assert (out / "a-post" / "trace.jsonl").read_bytes() == (d / "trace.jsonl").read_bytes()
@@ -84,7 +84,7 @@ def test_nothing_of_dot_ledger_or_other_files_is_copied(tmp_path):
     post(posts, "a-post", "A post", [x("x1"), published(1, "2026-11-11T10:00:00Z")],
          extra={".ledger/snapshots.jsonl": "secret", "notes.txt": "mine", "img/a.png": "png"})
     build(posts, out)
-    assert files(out / "a-post") == ["index.html", "post.md", "trace.jsonl"]
+    assert files(out / "a-post") == ["index.html", "post.md", "trace.jsonl", "v1/index.html"]
     assert "secret" not in "".join((out / f).read_text() for f in files(out))
 
 
@@ -92,7 +92,7 @@ def test_missing_post_md(tmp_path):
     posts, out = tmp_path / "posts", tmp_path / "docs"
     post(posts, "a-post", None, [x("x1"), published(1, "2026-11-11T10:00:00Z")])
     build(posts, out)
-    assert files(out / "a-post") == ["index.html", "trace.jsonl"]
+    assert files(out / "a-post") == ["index.html", "trace.jsonl", "v1/index.html"]
     assert "<title>Untitled</title>" in (out / "a-post" / "index.html").read_text()
 
 
