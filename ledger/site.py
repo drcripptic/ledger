@@ -455,6 +455,132 @@ def render_step(step: Step) -> str:
     return "\n".join(lines)
 
 
+def attribute(before_text: str, after_text: str, corpus: str) -> list[list[int]]:
+    r"""Return character ranges of added text that repeat at least 6 words from corpus.
+
+    - Tokens are re.findall(r"^\s+|\S+\s*", text). Added tokens are those marked "added" by diff.
+    - A token's words are re.findall(r"\w+", token.lower()). Corpus words likewise, from corpus.
+    - A stretch is a run of added tokens next to each other in after_text. Within a stretch, every
+      6 words in a row (across its tokens) that also appear 6 in a row in the corpus mark the tokens
+      from the one holding the first of the 6 words to the one holding the last.
+    - A range is the span of marked tokens next to each other (whole tokens, with their whitespace).
+    """
+    # Tokenize after_text and identify which tokens are added via diff
+    after_tokens = _tokenize(after_text)
+
+    # Build a map from character position to token index in after_text
+    pos_to_token: list[int] = []
+    pos = 0
+    for i, token in enumerate(after_tokens):
+        for _ in range(len(token)):
+            pos_to_token.append(i)
+        pos += len(token)
+
+    # Use diff to find added text spans
+    added_runs = diff([Run(before_text, "writer", "kept")], after_text, "ai")
+
+    # Build list of added runs with their positions in after_text
+    # Only count position for non-removed runs since removed text is not in after_text
+    pos_in_after = 0
+    added_runs_with_pos: list[tuple[int, str]] = []  # (start_pos_in_after, text)
+    
+    for run in added_runs:
+        if run.state == "added":
+            added_runs_with_pos.append((pos_in_after, run.text))
+            pos_in_after += len(run.text)
+        elif run.state == "kept":
+            pos_in_after += len(run.text)
+        # removed runs don't contribute to after_text positions
+
+    # Build list of consecutive added tokens in order from the added runs
+    added_with_pos: list[tuple[int, str]] = []
+    for start_pos, run_text in added_runs_with_pos:
+        # Tokenize the run text and compute token positions within it
+        run_tokens = _tokenize(run_text)
+        pos_in_run = 0
+        for token in run_tokens:
+            added_with_pos.append((start_pos + pos_in_run, token))
+            pos_in_run += len(token)
+
+    if not added_with_pos:
+        return []
+
+    # Extract all words from corpus (lowercase only)
+    corpus_words = re.findall(r"\w+", corpus.lower())
+
+    # Build a set of all 6-word sequences in corpus
+    corpus_sequences = set()
+    for i in range(len(corpus_words) - 5):
+        seq = tuple(corpus_words[i:i+6])
+        corpus_sequences.add(seq)
+
+    # Group added tokens into stretches (runs of added text separated by non-added)
+    stretches: list[list[tuple[int, str]]] = []
+    current_stretch: list[tuple[int, str]] = []
+
+    for start, token in added_with_pos:
+        if not current_stretch or start == current_stretch[-1][0] + len(current_stretch[-1][1]):
+            # This token is adjacent to the previous one
+            current_stretch.append((start, token))
+        else:
+            # Gap - save current stretch and start a new one
+            if current_stretch:
+                stretches.append(current_stretch)
+            current_stretch = [(start, token)]
+
+    if current_stretch:
+        stretches.append(current_stretch)
+
+    # For each stretch, find which tokens contain matching 6-word sequences
+    marked_ranges: list[list[int]] = []
+
+    for stretch in stretches:
+        # Extract all words from this stretch (lowercase), tracking which token each word comes from
+        stretch_words: list[tuple[str, int]] = []  # (word, token_idx)
+        for i, (start, token) in enumerate(stretch):
+            words = re.findall(r"\w+", token.lower())
+            for w in words:
+                stretch_words.append((w, i))
+
+        # Find 6-word sequences that match corpus
+        matched_tokens: set[int] = set()
+        for i in range(len(stretch_words) - 5):
+            seq = tuple(stretch_words[j][0] for j in range(i, i+6))
+            if seq in corpus_sequences:
+                # Mark tokens from first to last word of this match
+                first_token_idx = stretch_words[i][1]
+                last_token_idx = stretch_words[i+5][1]
+                for t in range(first_token_idx, last_token_idx + 1):
+                    matched_tokens.add(t)
+
+        if not matched_tokens:
+            continue
+
+        # Group consecutive matched tokens into ranges
+        sorted_matched = sorted(matched_tokens)
+        current_range_tokens: list[int] = []
+
+        for idx, i in enumerate(sorted_matched):
+            if not current_range_tokens or i == current_range_tokens[-1] + 1:
+                # Consecutive token - add to current range
+                current_range_tokens.append(i)
+            else:
+                # Gap - output current range and start new one
+                if current_range_tokens:
+                    start_pos = stretch[current_range_tokens[0]][0]
+                    end_pos = stretch[current_range_tokens[-1]][0] + len(stretch[current_range_tokens[-1]][1])
+                    marked_ranges.append([start_pos, end_pos])
+                current_range_tokens = [i]
+
+        # Output final range
+        if current_range_tokens:
+            start_pos = stretch[current_range_tokens[0]][0]
+            end_pos = stretch[current_range_tokens[-1]][0] + len(stretch[current_range_tokens[-1]][1])
+            marked_ranges.append([start_pos, end_pos])
+
+    return marked_ranges
+
+
 def build(posts: Path, out: Path) -> list[str]:
     """Build the published site from a posts folder into out.
 
