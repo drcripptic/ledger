@@ -1,8 +1,11 @@
 """site.diff: diff by author."""
 
 from dataclasses import dataclass
+from pathlib import Path
 import html
+import json
 import re
+import shutil
 from difflib import SequenceMatcher
 
 
@@ -450,3 +453,163 @@ def render_step(step: Step) -> str:
     lines.append('</section>')
 
     return "\n".join(lines)
+
+
+def build(posts: Path, out: Path) -> list[str]:
+    """Build the published site from a posts folder into out.
+
+    Returns the slugs it wrote, in index order (newest first by last published record's "at", then by slug).
+
+    - A post is a folder <posts>/<slug> holding trace.jsonl. Folders starting with "." are skipped.
+    - A post is published if its trace has a record with type "published"; others are skipped.
+    - For each published post: <out>/<slug>/index.html, <out>/<slug>/post.md (if exists), <out>/<slug>/trace.jsonl
+    - Creates <out>/index.html listing published posts newest first
+    - Creates <out>/.nojekyll (empty)
+    - Nothing from .ledger/ is copied. Nothing else is written outside out.
+    """
+    posts = Path(posts)
+    out = Path(out)
+
+    # Create output directory if needed
+    out.mkdir(parents=True, exist_ok=True)
+
+    # Collect published posts with their last published record's "at" for sorting
+    published_posts: list[tuple[str, str]] = []  # (slug, last_published_at)
+
+    if not posts.exists():
+        slugs = []
+    else:
+        for entry in posts.iterdir():
+            if not entry.is_dir():
+                continue
+            slug = entry.name
+            if slug.startswith("."):
+                continue
+
+            trace_path = entry / "trace.jsonl"
+            if not trace_path.exists():
+                continue
+
+            # Read trace records
+            records = []
+            with open(trace_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        records.append(json.loads(line))
+
+            # Check if published and find last published record's "at"
+            last_published_at = None
+            has_published = False
+            for r in records:
+                if r.get("type") == "published":
+                    has_published = True
+                    at = r.get("at", "")
+                    if last_published_at is None or at > last_published_at:
+                        last_published_at = at
+
+            if not has_published:
+                continue
+
+            published_posts.append((slug, last_published_at))
+
+        # Proper sort: newest first by "at", then alphabetically by slug for ties
+        sorted_posts = []
+        grouped = {}
+        for slug, at in published_posts:
+            if at not in grouped:
+                grouped[at] = []
+            grouped[at].append(slug)
+        
+        # Sort groups by at descending
+        for at in sorted(grouped.keys(), reverse=True):
+            # Within each group, sort slugs alphabetically (ascending)
+            for slug in sorted(grouped[at]):
+                sorted_posts.append((slug, at))
+        
+        published_posts = sorted_posts
+
+    slugs = [p[0] for p in published_posts]
+
+    # Build each published post
+    for slug in slugs:
+        post_dir = posts / slug
+        out_slug = out / slug
+        out_slug.mkdir(parents=True, exist_ok=True)
+
+        trace_path = post_dir / "trace.jsonl"
+        records = []
+        with open(trace_path) as f:
+            for line in f:
+                line = line.strip()
+                if line:
+                    records.append(json.loads(line))
+
+        # Copy trace.jsonl byte-for-byte
+        shutil.copy2(trace_path, out_slug / "trace.jsonl")
+
+        # Copy post.md if it exists (byte-for-byte)
+        post_md_path = post_dir / "post.md"
+        if post_md_path.exists():
+            shutil.copy2(post_md_path, out_slug / "post.md")
+
+        # Generate index.html
+        post_md_text = ""
+        if post_md_path.exists():
+            with open(post_md_path, "rb") as f:
+                post_md_bytes = f.read()
+            post_md_text = post_md_bytes.decode("utf-8")
+
+        html_content = render(post_md_text, records)
+        (out_slug / "index.html").write_text(html_content)
+
+    # Write .nojekyll
+    (out / ".nojekyll").write_text("")
+
+    # Build index.html listing published posts
+    index_body_items = []
+    for slug in slugs:
+        post_dir = posts / slug
+        post_md_path = post_dir / "post.md"
+        if post_md_path.exists():
+            with open(post_md_path, "rb") as f:
+                post_md_bytes = f.read()
+            post_md_text = post_md_bytes.decode("utf-8")
+        else:
+            post_md_text = ""
+
+        title = _parse_title(post_md_text)
+        escaped_title = html.escape(title)
+        index_body_items.append(f'<li><a href="{slug}/">{escaped_title}</a></li>')
+
+    index_html = f'''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Posts</title>
+<style>
+.step {{ display: none; }}
+.step:target, .step:last-of-type {{ display: block; }}
+.step:target ~ .step:last-of-type {{ display: none; }}
+.ai {{ color: blue; }}
+.writer {{ color: orange; text-decoration: underline; }}
+del {{ text-decoration: line-through; }}
+del.earlier {{ opacity: 0.5; }}
+ins.earlier.ai {{ opacity: 0.7; }}
+ins.earlier.writer {{ opacity: 0.7; }}
+.row {{ margin-bottom: 1em; }}
+.move {{ margin-top: 1em; }}
+</style>
+</head>
+<body>
+<h1>Posts</h1>
+<ul>
+{chr(10).join(index_body_items)}
+</ul>
+</body>
+</html>'''
+
+    (out / "index.html").write_text(index_html)
+
+    return slugs

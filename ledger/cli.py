@@ -4,6 +4,7 @@ import argparse
 import sys
 
 from ledger.importer import import_claude_code
+from ledger.site import build
 
 
 def cmd_start(args):
@@ -38,6 +39,16 @@ def cmd_import_claude_code(args):
         sys.exit(1)
 
 
+def cmd_site(args):
+    """Build the site from a posts folder."""
+    try:
+        build(args.posts, args.out)
+        sys.exit(0)
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="ledger",
@@ -65,6 +76,12 @@ def main():
     import_parser.add_argument("transcripts", nargs="*", default=[], help="Transcript paths")
     import_parser.add_argument("--root", default=".", help="Root directory")
     import_parser.set_defaults(func=cmd_import_claude_code)
+
+    # site subcommand
+    site_parser = subparsers.add_parser("site", help="Build the site from a posts folder")
+    site_parser.add_argument("posts", default="posts", nargs="?", help="Posts folder")
+    site_parser.add_argument("--out", default="docs", help="Output directory")
+    site_parser.set_defaults(func=cmd_site)
 
     args = parser.parse_args()
     
