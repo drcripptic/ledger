@@ -195,3 +195,22 @@ def test_reimport_appends_only_new_copies(tmp_path):
     save(tmp_path, [cp("stop", 3, "A. Mine. B.")])
     assert import_claude_code("a-post", [t], tmp_path) == 1
     assert short(trace(tmp_path)) == ["x1", ("ai", "x1", "A."), ("writer", "x1", "A. Mine."), "x2", ("ai", "x2", "A. Mine. B.")]
+
+
+def test_a_start_with_no_exchange_yet_still_takes_its_copies(tmp_path):
+    t = session(tmp_path, "s1", "ledger start a-post")
+    save(tmp_path, [cp("prompt", 0, ""), cp("stop", 1, "Started.")])
+    assert import_claude_code("a-post", [t], tmp_path) == 0
+    assert short(trace(tmp_path)) == [("ai", None, "Started.")]
+
+
+def test_a_new_copy_for_an_old_exchange_goes_before_the_new_records(tmp_path):
+    t = session(tmp_path, "s1", "ledger start a-post", "One.")
+    save(tmp_path, [cp("prompt", 0, ""), cp("stop", 1, ""), cp("prompt", 1, ""), cp("stop", 2, "A.")])
+    import_claude_code("a-post", [t], tmp_path)
+    session(tmp_path, "s1", "ledger start a-post", "One.", "ledger private a", "Two.")
+    save(tmp_path, [cp("prompt", 2, "A. B."), cp("stop", 3, "A. B. C."), cp("prompt", 3, "A. B. C."), cp("stop", 4, "A. B. C. D.")])
+    assert import_claude_code("a-post", [t], tmp_path) == 2
+    assert short(trace(tmp_path)) == ["x1", ("ai", "x1", "A."),
+                                      ("writer", "x1", "A. B."), "w:x2", ("ai", "x2", "A. B. C."),
+                                      "x3", ("ai", "x3", "A. B. C. D.")]
