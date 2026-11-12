@@ -159,3 +159,18 @@ def test_render_moves_ranges_past_the_front_matter():
     page = render(fm + "Mine.", records)
     assert '<ins class="ai">' + REPLY + "</ins>" in page.replace("&#x27;", "'")
     assert '<span class="mark">✎</span>Mine. </ins>' in page
+
+
+def test_a_tie_goes_after_the_latest_exchange(tmp_path):
+    t = session(tmp_path, "s1", turn("ledger start a-post", 0), turn("One.", 1), turn("Two.", 1))
+    save(tmp_path, [saved(1, 30, "Mine.")])
+    import_claude_code("a-post", [t], tmp_path)
+    assert [(r["by"], r["after"]) for r in snaps(tmp_path)] == [("mixed", "x2")]
+
+
+def test_a_folded_mixed_copy_has_ranges(tmp_path):
+    t = session(tmp_path, "s1", turn("ledger start a-post", 0), turn("One.", 1),
+                turn("ledger private x", 2), turn("Two.", 3))
+    save(tmp_path, [saved(1, 30, "Shown."), saved(2, 30, "Shown. Secret draft."), saved(2, 40, "Shown. Final.")])
+    import_claude_code("a-post", [t], tmp_path)
+    assert snaps(tmp_path)[1] == {"type": "snapshot", "by": "mixed", "after": "x2", "text": "Shown. Final.", "ai": []}
