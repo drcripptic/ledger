@@ -293,6 +293,109 @@ def _apply_mixed_diff(before: list[Run], text: str, ai_ranges: list[list[int]]) 
     return joined
 
 
+def _parse_title(md: str) -> str:
+    """Extract title from front matter, or 'Untitled' if not present."""
+    lines = md.split("\n")
+    if not lines[0].strip() == "---":
+        return "Untitled"
+    i = 1
+    while i < len(lines) and lines[i].strip() != "---":
+        line = lines[i]
+        if line.lower().startswith("title:"):
+            value = line[len("title:"):]
+            value = value.strip()
+            if (value.startswith('"') and value.endswith('"')) or \
+               (value.startswith("'") and value.endswith("'")):
+                value = value[1:-1]
+            return value
+        i += 1
+    return "Untitled"
+
+
+def _strip_front_matter(text: str) -> str:
+    """Remove front matter block from text if present."""
+    lines = text.split("\n")
+    if not lines[0].strip() == "---":
+        return text
+    i = 1
+    while i < len(lines) and lines[i].strip() != "---":
+        i += 1
+    if i >= len(lines):
+        return text
+    i += 1
+    while i < len(lines) and lines[i].strip() == "":
+        i += 1
+    return "\n".join(lines[i:]) if i < len(lines) else ""
+
+
+def render(post_md: str, records: list[dict]) -> str:
+    """Render a post as a complete HTML page."""
+    title = _parse_title(post_md)
+
+    styles = """<style>
+.step { display: none; }
+.step:target, .step:last-of-type { display: block; }
+.step:target ~ .step:last-of-type { display: none; }
+.ai { color: blue; }
+.writer { color: orange; text-decoration: underline; }
+del { text-decoration: line-through; }
+del.earlier { opacity: 0.5; }
+ins.earlier.ai { opacity: 0.7; }
+ins.earlier.writer { opacity: 0.7; }
+.row { margin-bottom: 1em; }
+.move { margin-top: 1em; }
+</style>"""
+
+    recs = records[1:] if records and "ledger_trace" in records[0] else records
+    stripped = []
+    for r in recs:
+        if r.get("type") == "snapshot":
+            r = dict(r)
+            r["text"] = _strip_front_matter(r["text"])
+        stripped.append(r)
+    step_list = steps(stripped)
+
+    nav_links = []
+    for step in step_list:
+        label_esc = html.escape(step.label)
+        nav_links.append(f'<a href="#{step.id}">{label_esc}</a>')
+    nav_row = '<nav class="row">' + " ".join(nav_links) + '</nav>'
+
+    section_lines = []
+    for i, step in enumerate(step_list):
+        prev_link = f'<a href="#{step_list[i - 1].id}">Previous</a>' if i > 0 else ""
+        next_link = f'<a href="#{step_list[i + 1].id}">Next</a>' if i < len(step_list) - 1 else ""
+        move_nav_parts = [p for p in [prev_link, next_link] if p]
+        move_nav = ' '.join(move_nav_parts)
+
+        step_html = render_step(step)
+        step_html = step_html.replace("</section>", f'<nav class="move">{move_nav}</nav>\n</section>')
+        section_lines.append(step_html)
+
+    sections = "\n".join(section_lines)
+
+    escaped_title = html.escape(title)
+
+    page = f'''<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{escaped_title}</title>
+{styles}
+</head>
+<body>
+<h1>{escaped_title}</h1>
+{nav_row}
+<main>
+{sections}
+</main>
+</body>
+</html>'''
+
+    return page
+
+
 def render_step(step: Step) -> str:
     """Render a step as HTML."""
     esc = lambda t: html.escape(t, quote=True)
