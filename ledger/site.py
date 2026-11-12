@@ -90,3 +90,203 @@ def diff(before: list[Run], after_text: str, by: str) -> list[Run]:
             joined.append(run)
 
     return joined
+
+
+@dataclass
+class Step:
+    """A step in the replay."""
+    kind: str
+    id: str
+    label: str
+    exchange: dict | None
+    runs: list[Run]
+
+
+def _settle(runs: list[Run]) -> list[Run]:
+    """Drop removed runs, set all state to kept, join neighbouring same-by runs."""
+    kept = [r for r in runs if r.state != "removed"]
+    settled: list[Run] = []
+    for run in kept:
+        run = Run(run.text, run.by, "kept")
+        if settled and run.by == settled[-1].by:
+            settled[-1] = Run(settled[-1].text + run.text, run.by, "kept")
+        else:
+            settled.append(run)
+    return settled
+
+
+def steps(records: list[dict]) -> list[Step]:
+    """Turn trace records into replay steps."""
+    result: list[Step] = []
+    post: list[Run] = []
+    edit_count = 0
+    withheld_idx = 0
+    withheld_count_val = 0
+    in_withheld = False
+    last_exchange: dict | None = None
+
+    for record in records:
+        if record["type"] == "exchange":
+            if in_withheld:
+                withheld_post = _settle(post)
+                result.append(Step("withheld", f"withheld-{withheld_idx}",
+                                  f"{withheld_count_val} withheld", None, withheld_post))
+                in_withheld = False
+
+            last_exchange = record
+            settled = _settle(post)
+            result.append(Step("exchange", record["id"], record["id"], record, settled))
+
+        elif record["type"] == "snapshot":
+            by = record["by"]
+            text = record["text"]
+
+            if in_withheld:
+                if by == "ai":
+                    post = diff(post, text, "ai")
+                elif by == "writer":
+                    post = diff(post, text, "writer")
+                elif by == "mixed":
+                    ai_ranges = record.get("ai") or []
+                    post = _apply_mixed_diff(post, text, ai_ranges)
+
+            else:
+                if last_exchange is None and not in_withheld:
+                    if by == "ai":
+                        post = diff(post, text, "ai")
+                    elif by == "writer":
+                        edit_count += 1
+                        new_post = diff(post, text, "writer")
+                        result.append(Step("writer", f"edit-{edit_count}", "✎", None, new_post))
+                        post = new_post
+                    elif by == "mixed":
+                        edit_count += 1
+                        ai_ranges = record.get("ai") or []
+                        new_post = _apply_mixed_diff(post, text, ai_ranges)
+                        result.append(Step("mixed", f"edit-{edit_count}", "✎", None, new_post))
+                        post = new_post
+
+                elif last_exchange is not None:
+                    if by == "ai":
+                        post = diff(post, text, "ai")
+                        for st in result:
+                            if st.kind == "exchange" and st.exchange == last_exchange:
+                                st.runs = list(post)
+                                break
+                    elif by == "writer":
+                        edit_count += 1
+                        new_post = diff(post, text, "writer")
+                        result.append(Step("writer", f"edit-{edit_count}", "✎", None, new_post))
+                        post = new_post
+                    elif by == "mixed":
+                        edit_count += 1
+                        ai_ranges = record.get("ai") or []
+                        new_post = _apply_mixed_diff(post, text, ai_ranges)
+                        result.append(Step("mixed", f"edit-{edit_count}", "✎", None, new_post))
+                        post = new_post
+
+        elif record["type"] == "withheld":
+            if in_withheld:
+                withheld_post = _settle(post)
+                result.append(Step("withheld", f"withheld-{withheld_idx}",
+                                  f"{withheld_count_val} withheld", None, withheld_post))
+            withheld_idx += 1
+            withheld_count_val = record["count"]
+            in_withheld = True
+
+        elif record["type"] == "published":
+            if in_withheld:
+                withheld_post = _settle(post)
+                result.append(Step("withheld", f"withheld-{withheld_idx}",
+                                  f"{withheld_count_val} withheld", None, withheld_post))
+                in_withheld = False
+
+            settled = _settle(post)
+            version = record["version"]
+            result.append(Step("published", f"v{version}", f"Published v{version}", None, settled))
+
+    if in_withheld:
+        withheld_post = _settle(post)
+        result.append(Step("withheld", f"withheld-{withheld_idx}",
+                         f"{withheld_count_val} withheld", None, withheld_post))
+
+    return result
+
+
+def _apply_mixed_diff(before: list[Run], text: str, ai_ranges: list[list[int]]) -> list[Run]:
+    """Apply a mixed diff, splitting added text by ai ranges.
+
+    ai_ranges are [start, end) character offsets into `text` (the after text).
+    Added text inside an ai range has by "ai", outside has by "writer".
+    """
+    before_text = "".join(r.text for r in before if r.state != "removed")
+    base_runs = diff(before, text, "writer")
+
+    result: list[Run] = []
+    text_pos = 0
+
+    def is_ai(pos: int) -> bool:
+        """Check if a position in `text` falls within an ai range."""
+        for start, end in ai_ranges:
+            if start <= pos < end:
+                return True
+        return False
+
+    def next_ai_start_after(pos: int) -> float:
+        """Find the next ai range start after pos, or inf if none."""
+        next_start = float('inf')
+        for start, _ in ai_ranges:
+            if start > pos:
+                next_start = min(next_start, start)
+        return next_start
+
+    def end_of_ai_range(pos: int) -> int:
+        """Find the end of an ai range that contains pos."""
+        for start, end in ai_ranges:
+            if start <= pos < end:
+                return end
+        return 0
+
+    for run in base_runs:
+        if run.state == "removed":
+            result.append(run)
+        elif run.state == "kept":
+            result.append(Run(run.text, run.by, "kept"))
+            text_pos += len(run.text)
+        elif run.state == "added":
+            remaining = run.text
+            run_text_pos = 0
+
+            while remaining:
+                abs_pos = text_pos + run_text_pos
+                if is_ai(abs_pos):
+                    ai_end = end_of_ai_range(abs_pos)
+                    chunk_len = min(ai_end - abs_pos, len(remaining))
+                    result.append(Run(remaining[:chunk_len], "ai", "added"))
+                    remaining = remaining[chunk_len:]
+                    run_text_pos += chunk_len
+                else:
+                    next_start = next_ai_start_after(abs_pos)
+                    if next_start == float('inf'):
+                        result.append(Run(remaining, "writer", "added"))
+                        break
+                    else:
+                        end_of_this_run_abs = text_pos + len(run.text)
+                        chunk_len = min(int(next_start - abs_pos), len(remaining))
+                        result.append(Run(remaining[:chunk_len], "writer", "added"))
+                        remaining = remaining[chunk_len:]
+                        run_text_pos += chunk_len
+
+            text_pos += len(run.text)
+
+    if not result:
+        return []
+
+    joined: list[Run] = [result[0]]
+    for run in result[1:]:
+        if run.by == joined[-1].by and run.state == joined[-1].state:
+            joined[-1] = Run(joined[-1].text + run.text, run.by, run.state)
+        else:
+            joined.append(run)
+
+    return joined
