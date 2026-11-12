@@ -1,226 +1,134 @@
-"""Import Claude Code transcripts into a post trace."""
-
-import json
+import json, re
 from pathlib import Path
-
 from ledger.claude_code import exchanges
 
+REDACTED = "Redacted: it touches .ledger/."
 
-def _read_private_ids(post_dir):
-    """Read private ids from post.md front matter."""
-    post_md = post_dir / "post.md"
-    if not post_md.exists():
-        return set()
-    text = post_md.read_text()
-    if not text.startswith("---"):
-        return set()
-    end = text.find("---", 3)
-    if end < 0:
-        return set()
-    front_matter = text[4:end]
-    for line in front_matter.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("private:"):
-            rest = stripped[8:].strip()
-            if rest.startswith("[") and rest.endswith("]"):
-                ids_str = rest[1:-1].strip()
-                if not ids_str:
-                    return set()
-                ids = set()
-                for item in ids_str.split(","):
-                    item = item.strip()
-                    if item.startswith("x"):
-                        ids.add(item)
-                return ids
-    return set()
+def _words(p, n): return p.split()[:n]
 
+def _transcripts(paths, root):
+    best = {}
+    for p in [Path(x) for x in paths] + sorted((Path(root) / ".ledger" / "transcripts").glob("*.jsonl")):
+        n = len(p.read_text().splitlines())
+        if p.name not in best or n > best[p.name][0]:
+            best[p.name] = (n, p)
+    return [p for _, p in best.values()]
 
-def _is_private_prompt(prompt):
-    """Check if a prompt starts with 'ledger private'."""
-    words = prompt.strip().split()
-    return len(words) >= 2 and words[0] == "ledger" and words[1] == "private"
+def _post_exchanges(slug, paths, root):
+    out, found = [], False
+    for p in _transcripts(paths, root):
+        inside = False
+        for x in exchanges(p):
+            w = x["prompt"].split()
+            if w[:3] == ["ledger", "start", slug]:
+                inside = found = True; continue
+            if w[:2] in (["ledger", "end"], ["ledger", "start"]):
+                inside = False; continue
+            if inside: out.append(dict(x, _sid=p.stem))
+    if not found: raise ValueError(f"no `ledger start {slug}` in the transcripts")
+    return sorted(out, key=lambda x: x["at"])
 
+def _private_ids(post):
+    if not post.exists(): return set()
+    m = re.search(r"^private:\s*\[(.*?)\]", post.read_text(), re.M)
+    return {s.strip() for s in m.group(1).split(",") if s.strip()} if m else set()
 
-def _is_start_prompt(prompt, slug):
-    """Check if a prompt starts with 'ledger start <slug>'."""
-    words = prompt.strip().split()
-    return len(words) >= 3 and words[0] == "ledger" and words[1] == "start" and words[2] == slug
+def _tool(t):
+    if ".ledger/" in t["summary"] or ".ledger/" in t["detail"]:
+        return {"name": t["name"], "summary": t["name"], "detail": REDACTED}
+    return t
 
+def _copies(post_dir):
+    p = post_dir / ".ledger" / "snapshots.jsonl"
+    if not p.exists(): return []
+    out = []
+    for line in p.read_text().splitlines():
+        try: out.append(json.loads(line))
+        except ValueError: pass
+    return out
 
-def _is_end_prompt(prompt):
-    """Check if a prompt starts with 'ledger end'."""
-    words = prompt.strip().split()
-    return len(words) >= 2 and words[0] == "ledger" and words[1] == "end"
+def _snapshots(copies, xs, ids):
+    """(by, after, text) per change, in copy order."""
+    by_sn = {(x["_sid"], x["n"]): ids[i] for i, x in enumerate(xs)}
+    out, prev = [], ""
+    for c in copies:
+        text = c.get("text", "")
+        if text == prev: continue
+        prev = text
+        if c["event"] == "stop": by = "ai"
+        elif c.get("interrupted"): by = "mixed"
+        else: by = "writer"
+        sid, n = c["session_id"], c["n"]
+        after = by_sn.get((sid, n))
+        if after is None:
+            below = [x["n"] for x in xs if x["_sid"] == sid and x["n"] < n]
+            if below: after = by_sn[(sid, max(below))]
+            else:
+                first = next((i for i, x in enumerate(xs) if x["_sid"] == sid), None)
+                after = ids[first - 1] if first else None
+        out.append({"type": "snapshot", "by": by, "after": after, "text": text})
+    return out
 
-
-def _is_any_start_prompt(prompt):
-    """Check if a prompt starts with 'ledger start' (any slug)."""
-    words = prompt.strip().split()
-    return len(words) >= 2 and words[0] == "ledger" and words[1] == "start"
-
-
-def _extract_spans(exchanges_list, slug):
-    """Extract spans for the given slug from exchanges."""
-    spans = []
-    i = 0
-    while i < len(exchanges_list):
-        ex = exchanges_list[i]
-        if _is_start_prompt(ex["prompt"], slug):
-            start_idx = i + 1
-            j = start_idx
-            while j < len(exchanges_list):
-                next_ex = exchanges_list[j]
-                if _is_end_prompt(next_ex["prompt"]):
-                    break
-                if _is_any_start_prompt(next_ex["prompt"]):
-                    break
-                j += 1
-            spans.append(exchanges_list[start_idx:j])
-        i += 1
-    return spans
-
-
-def _all_transcript_paths(transcripts, root):
-    """Get all transcript paths, with saved copies, picking longest on duplicates."""
-    saved_dir = root / ".ledger" / "transcripts"
-    seen = {}
-    
-    for t in transcripts:
-        name = Path(t).name
-        if name not in seen or len(Path(t).read_text().splitlines()) > len(Path(seen[name]).read_text().splitlines()):
-            seen[name] = t
-    
-    if saved_dir.exists():
-        for p in saved_dir.glob("*.jsonl"):
-            name = p.name
-            if name not in seen or len(p.read_text().splitlines()) > len(Path(seen[name]).read_text().splitlines()):
-                seen[name] = str(p)
-    
-    return list(seen.values())
-
-
-def _redact_tools(tools):
-    """Redact tool details touching .ledger/."""
-    result = []
-    for tool in tools:
-        summary = tool["summary"]
-        detail = tool["detail"]
-        name = tool["name"]
-        if ".ledger/" in summary or ".ledger/" in detail:
-            result.append({
-                "name": name,
-                "summary": name,
-                "detail": "Redacted: it touches .ledger/."
-            })
-        else:
-            result.append(tool)
-    return result
-
-
-def import_claude_code(slug, transcripts, root):
-    """Import a post's history from Claude Code transcripts.
-    
-    Returns the number of exchanges added (including withheld ones).
-    """
+def import_claude_code(slug, transcripts, root="."):
     root = Path(root)
-    transcript_paths = _all_transcript_paths(transcripts, root)
-    
-    all_exchanges = []
-    for tp in transcript_paths:
-        ex_list = exchanges(tp)
-        spans = _extract_spans(ex_list, slug)
-        for span in spans:
-            for ex in span:
-                all_exchanges.append(ex)
-    
-    if not all_exchanges:
-        raise ValueError(f"No ledger start {slug} found")
-    
-    all_exchanges.sort(key=lambda e: e["at"])
-    
-    post_dir = root / slug
-    post_dir.mkdir(parents=True, exist_ok=True)
-    trace_path = post_dir / "trace.jsonl"
-    
-    existing_records = []
-    last_id_n = 0
-    
-    if trace_path.exists():
-        for line in trace_path.read_text().splitlines():
-            if line.strip():
-                record = json.loads(line)
-                existing_records.append(record)
-                if record.get("type") == "exchange":
-                    ex_id = record["id"]
-                    n = int(ex_id[1:])
-                    last_id_n = max(last_id_n, n)
-                elif record.get("type") == "withheld":
-                    for wid in record["ids"]:
-                        n = int(wid[1:])
-                        last_id_n = max(last_id_n, n)
-    
-    private_ids = _read_private_ids(post_dir)
-    
-    numbered_exchanges = []
-    for i, ex in enumerate(all_exchanges):
-        id_str = f"x{i+1}"
-        numbered_exchanges.append((id_str, ex))
-    
-    newer_exchanges = [ne for ne in numbered_exchanges if int(ne[0][1:]) > last_id_n]
-    
-    if not newer_exchanges:
-        return 0
-    
-    has_header = any("ledger_trace" in r for r in existing_records)
-    
-    records_to_write = []
-    if not has_header and trace_path.exists():
-        records_to_write.append({"ledger_trace": 1, "post": slug})
-    
-    withheld_batch = []
-    for id_str, ex in newer_exchanges:
-        is_private = _is_private_prompt(ex["prompt"]) or id_str in private_ids
-        
-        if is_private:
-            withheld_batch.append((id_str, ex))
+    xs = _post_exchanges(slug, transcripts, root)
+    ids = [f"x{n}" for n in range(1, len(xs) + 1)]
+    path = root / slug / "trace.jsonl"
+    last, have = 0, {}
+    if path.exists():
+        for line in path.read_text().splitlines():
+            r = json.loads(line)
+            for i in ([r["id"]] if r.get("type") == "exchange" else r.get("ids", []) if r.get("type") == "withheld" else []):
+                last = max(last, int(i[1:]))
+            if r.get("type") == "snapshot":
+                have[r["after"]] = have.get(r["after"], 0) + 1
+    private = _private_ids(root / slug / "post.md")
+    # full sequence of items
+    items = []
+    for n, x in enumerate(xs, 1):
+        xid = f"x{n}"
+        if _words(x["prompt"], 2) == ["ledger", "private"] or xid in private:
+            if items and items[-1]["kind"] == "withheld" and items[-1]["ids"][-1] == f"x{n-1}":
+                items[-1]["ids"].append(xid)
+            else:
+                items.append({"kind": "withheld", "ids": [xid], "x": x, "snaps": []})
         else:
-            while withheld_batch:
-                first_id, first_ex = withheld_batch[0]
-                records_to_write.append({
-                    "type": "withheld",
-                    "at": first_ex["at"],
-                    "count": len(withheld_batch),
-                    "ids": [b[0] for b in withheld_batch]
-                })
-                withheld_batch = []
-            
-            redacted_tools = _redact_tools(ex["tools"])
-            records_to_write.append({
-                "type": "exchange",
-                "id": id_str,
-                "at": ex["at"],
-                "source": "claude-code",
-                "model": ex["model"],
-                "prompt": ex["prompt"],
-                "reply": ex["reply"],
-                "tools": redacted_tools
-            })
-    
-    while withheld_batch:
-        first_id, first_ex = withheld_batch[0]
-        records_to_write.append({
-            "type": "withheld",
-            "at": first_ex["at"],
-            "count": len(withheld_batch),
-            "ids": [b[0] for b in withheld_batch]
-        })
-        withheld_batch = []
-    
-    if not trace_path.exists() and not has_header:
-        records_to_write.insert(0, {"ledger_trace": 1, "post": slug})
-    
-    text = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in records_to_write)
-    with open(trace_path, "a") as f:
-        f.write(text)
-    
-    return len(newer_exchanges)
+            items.append({"kind": "exchange", "ids": [xid], "x": x, "snaps": []})
+    where = {i: it for it in items for i in it["ids"]}
+    lead = []
+    for s in _snapshots(_copies(root / slug), xs, ids):
+        (where[s["after"]]["snaps"] if s["after"] else lead).append(s)
+    for it in items:
+        if it["kind"] == "withheld" and it["snaps"]:
+            ss = it["snaps"]
+            bys = {s["by"] for s in ss}
+            it["snaps"] = [{"type": "snapshot", "by": bys.pop() if len(bys) == 1 else "mixed", "after": ss[-1]["after"], "text": ss[-1]["text"]}]
+    seen = {}
+    def fresh(snaps):
+        out = []
+        for s in snaps:
+            k = seen.get(s["after"], 0); seen[s["after"]] = k + 1
+            if k >= have.get(s["after"], 0): out.append(s)
+        return out
+    early, late, added = fresh(lead), [], 0
+    for it in items:
+        new_ids = [i for i in it["ids"] if int(i[1:]) > last]
+        snaps = fresh(it["snaps"])
+        if not new_ids:
+            early += snaps; continue
+        x = it["x"]
+        added += len(new_ids)
+        if it["kind"] == "withheld":
+            late.append({"type": "withheld", "at": x["at"], "count": len(new_ids), "ids": new_ids})
+        else:
+            late.append({"type": "exchange", "id": new_ids[0], "at": x["at"], "source": "claude-code", "model": x["model"],
+                         "prompt": x["prompt"], "reply": x["reply"], "tools": [_tool(t) for t in x["tools"]]})
+        late += snaps
+    records = early + late
+    if not records: return 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    new = not path.exists()
+    with open(path, "a", encoding="utf-8") as f:
+        if new: f.write(json.dumps({"ledger_trace": 1, "post": slug}, ensure_ascii=False) + "\n")
+        for r in records: f.write(json.dumps(r, ensure_ascii=False) + "\n")
+    return added
