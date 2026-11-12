@@ -3,11 +3,14 @@
 import argparse
 import json
 import os
+import signal
 import sys
+import time
 
 from ledger.snapshot import hook as snapshot_hook
 from ledger.importer import import_claude_code
 from ledger.site import build
+from ledger.watch import watch
 from pathlib import Path
 
 
@@ -91,6 +94,31 @@ def cmd_site(args):
         sys.exit(1)
 
 
+def cmd_watch(args):
+    """Watch post.md for changes."""
+    if not args.slug:
+        print("Error: watch requires a slug argument", file=sys.stderr)
+        sys.exit(1)
+
+    root = os.getcwd()
+    
+    def now():
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    stopped = {"value": False}
+    
+    def stop():
+        return stopped["value"]
+
+    def handler(sig, frame):
+        stopped["value"] = True
+
+    signal.signal(signal.SIGINT, handler)
+    watch(args.slug, root, now, time.sleep, stop)
+    sys.exit(0)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="ledger",
@@ -136,6 +164,11 @@ def main():
     snapshot_parser = subparsers.add_parser("snapshot", help="Handle snapshot hooks")
     snapshot_parser.add_argument("event", help="Hook event type")
     snapshot_parser.set_defaults(func=cmd_snapshot)
+
+    # watch subcommand
+    watch_parser = subparsers.add_parser("watch", help="Watch post.md for changes")
+    watch_parser.add_argument("slug", nargs="?", default="", help="Post slug")
+    watch_parser.set_defaults(func=cmd_watch)
 
     args = parser.parse_args()
     
