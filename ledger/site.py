@@ -730,15 +730,51 @@ def build(posts: Path, out: Path) -> list[str]:
         if post_md_path.exists():
             shutil.copy2(post_md_path, out_slug / "post.md")
 
-        # Generate index.html
-        post_md_text = ""
-        if post_md_path.exists():
-            with open(post_md_path, "rb") as f:
-                post_md_bytes = f.read()
-            post_md_text = post_md_bytes.decode("utf-8")
+        # Find all published records and their version numbers
+        published_records = [r for r in records if r.get("type") == "published"]
+        
+        # Generate index.html for each version, never overwriting an existing one
+        for pub_record in published_records:
+            version = pub_record["version"]
+            version_records = []
+            for r in records:
+                version_records.append(r)
+                if r.get("type") == "published" and r.get("version") == version:
+                    break
+            
+            v_dir = out_slug / f"v{version}"
+            v_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Don't rewrite existing version files
+            index_path = v_dir / "index.html"
+            if not index_path.exists():
+                post_md_text = ""
+                if post_md_path.exists():
+                    with open(post_md_path, "rb") as f:
+                        post_md_bytes = f.read()
+                    post_md_text = post_md_bytes.decode("utf-8")
+                
+                html_content = render(post_md_text, version_records)
+                index_path.write_text(html_content)
 
-        html_content = render(post_md_text, records)
-        (out_slug / "index.html").write_text(html_content)
+        # Generate main index.html (latest version's content)
+        if published_records:
+            latest_version = max(pr.get("version", 0) for pr in published_records)
+            post_md_text = ""
+            if post_md_path.exists():
+                with open(post_md_path, "rb") as f:
+                    post_md_bytes = f.read()
+                post_md_text = post_md_bytes.decode("utf-8")
+
+            # Find records up to and including the latest publish
+            version_records = []
+            for r in records:
+                version_records.append(r)
+                if r.get("type") == "published" and r.get("version") == latest_version:
+                    break
+            
+            html_content = render(post_md_text, version_records)
+            (out_slug / "index.html").write_text(html_content)
 
     # Write .nojekyll
     (out / ".nojekyll").write_text("")
