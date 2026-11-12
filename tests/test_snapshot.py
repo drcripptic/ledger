@@ -15,7 +15,11 @@ is writing a post.
 
 prompt:
 - A prompt whose first three words are `ledger start <slug>` writes the session's file (a new
-  start replaces the slug).
+  start replaces the slug). A slug is lowercase letters, digits and hyphens, starting with a
+  letter or digit (re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug)); any other third word starts
+  nothing: no session file is written or changed.
+- MARKER_CONTEXT is exactly: 'This prompt is a ledger marker. Reply with exactly "Recording."
+  and nothing else, and do nothing else: no tools, no other text.'
 - Then, if the session is writing a post, append a copy (below) with event "prompt" to that post.
 - A prompt whose first two words are `ledger end` then removes the session's file (its copy is
   still taken, to the post it ends).
@@ -209,3 +213,16 @@ def test_the_command_never_fails_or_blocks(tmp_path):
         assert r.returncode == 0, (event, stdin, r.stderr)
         assert r.stdout == ""
         assert "decision" not in r.stdout
+
+
+def test_the_marker_context_text():
+    assert MARKER_CONTEXT == ('This prompt is a ledger marker. Reply with exactly "Recording." and nothing else, '
+                              'and do nothing else: no tools, no other text.')
+
+
+def test_a_bad_slug_starts_nothing(tmp_path):
+    for bad in ("../escape", "A-Post", "-x", "a/b", "a.b"):
+        assert hook("prompt", {"session_id": "s1", "transcript_path": str(tmp_path / "none.jsonl"), "cwd": str(tmp_path),
+                               "prompt": f"ledger start {bad}"}, tmp_path) == MARKER_OUT
+    assert not (tmp_path / ".ledger").exists()
+    assert not (tmp_path.parent / "escape").exists()
