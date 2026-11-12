@@ -86,6 +86,24 @@ def test_missing_for_a_moment(tmp_path):
     assert [l["text"] for l in lines(tmp_path)] == ["One.", "Two."]
 
 
+def test_gone_between_looking_and_reading(tmp_path, monkeypatch):
+    """The editor can remove post.md after watch sees it and before it reads it."""
+    real = Path.read_text
+    gone = {"n": 0}
+
+    def read_text(self, *a, **kw):
+        if self.name == "post.md" and gone["n"] == 1:
+            gone["n"] += 1
+            raise FileNotFoundError(self)
+        if self.name == "post.md":
+            gone["n"] += 1
+        return real(self, *a, **kw)
+
+    monkeypatch.setattr(Path, "read_text", read_text)
+    run(tmp_path, ["One.", "Two.", None])
+    assert [l["text"] for l in lines(tmp_path)] == ["One.", "Two."]
+
+
 def test_stop_before_any_check(tmp_path):
     slept = run(tmp_path, [])
     assert slept == [] and lines(tmp_path) == []
