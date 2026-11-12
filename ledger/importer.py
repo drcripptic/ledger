@@ -33,10 +33,18 @@ def _private_ids(post):
     m = re.search(r"^private:\s*\[(.*?)\]", post.read_text(), re.M)
     return {s.strip() for s in m.group(1).split(",") if s.strip()} if m else set()
 
+def _tilde(text):
+    """The writer's own home folder, written as ~."""
+    home = str(Path.home()).rstrip("/")
+    if not home or home == "/" or not text:
+        return text
+    return re.sub(re.escape(home) + r"(?![A-Za-z0-9_-]|\.[A-Za-z0-9_-])", "~", text)
+
+
 def _tool(t):
     if ".ledger/" in t["summary"] or ".ledger/" in t["detail"]:
         return {"name": t["name"], "summary": t["name"], "detail": REDACTED}
-    return t
+    return dict(t, summary=_tilde(t["summary"]), detail=_tilde(t["detail"]))
 
 def _copies(post_dir):
     p = post_dir / ".ledger" / "snapshots.jsonl"
@@ -122,7 +130,7 @@ def import_claude_code(slug, transcripts, root="."):
             late.append({"type": "withheld", "at": x["at"], "count": len(new_ids), "ids": new_ids})
         else:
             late.append({"type": "exchange", "id": new_ids[0], "at": x["at"], "source": "claude-code", "model": x["model"],
-                         "prompt": x["prompt"], "reply": x["reply"], "tools": [_tool(t) for t in x["tools"]]})
+                         "prompt": _tilde(x["prompt"]), "reply": _tilde(x["reply"]), "tools": [_tool(t) for t in x["tools"]]})
         late += snaps
     records = early + late
     if not records: return 0
