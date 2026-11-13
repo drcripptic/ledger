@@ -122,6 +122,12 @@ def _is_interrupted(root, slug, session_id):
     return False
 
 
+def post_context(root, slug):
+    """Return the context string telling the AI where the post is."""
+    post_path = Path(root).resolve() / slug / "post.md"
+    return f'This session is writing the post "{slug}". The post is the file {post_path} (create it if it doesn\'t exist): write and edit the post there, and nowhere else.'
+
+
 def hook(event, payload, root):
     """Handle one Claude Code hook call and return what the command prints to stdout."""
     try:
@@ -169,6 +175,8 @@ def hook(event, payload, root):
 
             if is_marker:
                 return marker_out
+            if slug:
+                return json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": post_context(root, slug)}})
             return ""
 
         elif event == "stop":

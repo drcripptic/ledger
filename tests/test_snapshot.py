@@ -25,7 +25,10 @@ prompt:
   still taken, to the post it ends).
 - On a marker (first two words `ledger start`, `ledger end` or `ledger private`) return
   json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit",
-  "additionalContext": MARKER_CONTEXT}}), whether or not a post is being written. Otherwise "".
+  "additionalContext": MARKER_CONTEXT}}), whether or not a post is being written.
+- On any other prompt while the session is writing a post, return the same JSON with
+  "additionalContext": post_context(root, slug) (tests/test_post_context.py), so the AI writes
+  the post where the copies are taken and the writer never names a file. Otherwise "".
 
 stop:
 - If the session is writing a post: append a copy with event "stop", and copy the transcript
@@ -50,7 +53,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from ledger.snapshot import MARKER_CONTEXT, hook
+from ledger.snapshot import MARKER_CONTEXT, hook, post_context
 
 LEDGER = Path(sys.executable).parent / "ledger"
 MARKER_OUT = json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": MARKER_CONTEXT}})
@@ -102,7 +105,8 @@ def test_prompt_then_stop(tmp_path):
     hook("stop", payload(t), tmp_path)
     write_post(tmp_path, "Mine.")
     t = transcript(tmp_path, prompts=["ledger start a-post", "Draft it."])
-    assert hook("prompt", payload(t, "Draft it."), tmp_path) == ""
+    assert hook("prompt", payload(t, "Draft it."), tmp_path) == json.dumps({"hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit", "additionalContext": post_context(tmp_path, "a-post")}})
     write_post(tmp_path, "Mine. AI's.")
     assert hook("stop", payload(t), tmp_path) == ""
     cs = copies(tmp_path)
