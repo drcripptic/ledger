@@ -13,7 +13,8 @@ turns the ValueError into Refused, so nothing is built.
   `post.md's private line can't be read: write it as private: [x4, x5]`. `private: []` is
   read, and names none. This is checked from the top of post.md to its front matter's closing
   `---`, or through the whole file when there's no closed front matter. Past the front matter,
-  a line that isn't a readable list is the post's own text and isn't refused.
+  only a line starting `private: [` is refused when it can't be read; any other is the post's
+  own text.
 - A readable list counts wherever it is in post.md, as before, and when there are several
   their ids are put together.
 - Already written: an id in the list that trace.jsonl already holds as an exchange record,
@@ -75,6 +76,12 @@ def test_an_empty_list_withholds_nothing(tmp_path, t):
     post(tmp_path, "private: []\n")
     assert import_claude_code("a-post", [t], tmp_path) == 3
     assert prompts(trace(tmp_path)) == ["One.", "Secret plan.", "Two."]
+
+
+def test_an_unreadable_list_in_the_body_is_refused(tmp_path, t):
+    post(tmp_path, "", "private: [x2] # kept back")
+    with pytest.raises(ValueError, match="can't be read"):
+        import_claude_code("a-post", [t], tmp_path)
 
 
 def test_prose_in_the_body_starting_private_is_text(tmp_path, t):
