@@ -17,11 +17,13 @@ turns the ValueError into Refused, so nothing is built.
   own text.
 - A readable list counts wherever it is in post.md, as before, and when there are several
   their ids are put together.
-- Already written: an id in the list that trace.jsonl already holds as an exchange record,
-  when the trace has no `published` record. The message is
-  `private names x2, already written to <path>: delete that file, then import again`, with the
-  trace's path and the ids sorted as strings and joined with ", ". An id the trace already holds in a
-  withheld record is fine, and so is any listed id once the trace has a `published` record.
+- Already written: an id in the list that trace.jsonl holds as an exchange record after its
+  last `published` record (anywhere in it, when there is none). The message is
+  `private names x2, already written to <path>: delete that file, then import again`, or, when
+  the trace has a `published` record, `... <path>: delete its lines after the last published
+  record, then import again`; the trace's path, and the ids sorted as strings and joined with
+  ", ". An id the trace holds in a withheld record is fine, and so is an exchange record before
+  the last `published` record: it's public already, and a trace only grows.
 """
 
 import pytest
@@ -145,6 +147,22 @@ def test_a_published_trace_is_not_refused(tmp_path, t):
     publish("a-post", tmp_path, [t])
     post(tmp_path, "private: [x2]\n")
     assert import_claude_code("a-post", [t], tmp_path) == 0
+
+
+def test_a_revisions_exchange_already_in_the_trace_is_refused(tmp_path, t):
+    post(tmp_path, "")
+    publish("a-post", tmp_path, [t])
+    v1 = path(tmp_path).read_bytes()
+    r = transcript(tmp_path / "s2.jsonl", turn("ledger start a-post", 11), turn("Secret revision.", 12), turn("More.", 13))
+    import_claude_code("a-post", [t, r], tmp_path)
+    post(tmp_path, "private: [x4]\n")
+    with pytest.raises(ValueError) as e:
+        import_claude_code("a-post", [t, r], tmp_path)
+    assert str(e.value) == (f"private names x4, already written to {path(tmp_path)}: "
+                            "delete its lines after the last published record, then import again")
+    path(tmp_path).write_bytes(v1)
+    import_claude_code("a-post", [t, r], tmp_path)
+    assert "Secret revision" not in path(tmp_path).read_text()
 
 
 @pytest.mark.parametrize("front", ["private: [x22]\n", "private: x2\n"])

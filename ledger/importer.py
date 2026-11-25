@@ -199,7 +199,7 @@ def import_claude_code(slug, transcripts, root="."):
             for i in ([r["id"]] if r.get("type") == "exchange" else r.get("ids", []) if r.get("type") == "withheld" else []):
                 last = max(last, int(i[1:]))
             if r.get("type") == "exchange": written_ids.add(r["id"])
-            if r.get("type") == "published": published = True
+            if r.get("type") == "published": published = True; written_ids.clear()
             if r.get("type") == "snapshot":
                 have[r["after"]] = have.get(r["after"], 0) + 1
     private = _private_ids(root / slug / "post.md")
@@ -208,8 +208,9 @@ def import_claude_code(slug, transcripts, root="."):
         span = f"x1 to {ids[-1]}" if ids else "it has no exchanges"
         raise ValueError(f"private names {', '.join(unknown)}, which isn't in this post ({span})")
     late_marks = sorted(private & written_ids)
-    if late_marks and not published:
-        raise ValueError(f"private names {', '.join(late_marks)}, already written to {path}: delete that file, then import again")
+    if late_marks:
+        undo = "delete its lines after the last published record" if published else "delete that file"
+        raise ValueError(f"private names {', '.join(late_marks)}, already written to {path}: {undo}, then import again")
     # full sequence of items
     items = []
     for n, x in enumerate(xs, 1):
