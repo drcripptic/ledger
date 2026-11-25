@@ -30,9 +30,19 @@ def _post_exchanges(slug, paths, root):
     return sorted(out, key=lambda x: x["at"])
 
 def _private_ids(post):
+    """The ids in post.md's `private: [x4, x5]` lines. A line that should be one but can't be read is refused."""
     if not post.exists(): return set()
-    m = re.search(r"^private:\s*\[(.*?)\]", post.read_text(), re.M)
-    return {s.strip() for s in m.group(1).split(",") if s.strip()} if m else set()
+    ids = set()
+    lines = post.read_text().splitlines()
+    closed = next((i for i, l in enumerate(lines[1:], 1) if l.strip() == "---"), len(lines)) \
+        if lines and lines[0].strip() == "---" else len(lines)
+    for i, line in enumerate(lines):
+        m = re.fullmatch(r"private:\s*\[\s*((?:x\d+\s*(?:,\s*x\d+\s*)*)?)\]\s*", line, re.I | re.A)
+        if m and m.group(1) == m.group(1).lower():
+            ids |= {s.strip() for s in m.group(1).split(",") if s.strip()}
+        elif line.lower().startswith("private:") and (i < closed or line[8:].lstrip().startswith("[")):
+            raise ValueError("post.md's private line can't be read: write it as private: [x4, x5]")
+    return ids
 
 def _tilde(text):
     """The writer's own home folder, written as ~."""
@@ -182,15 +192,25 @@ def import_claude_code(slug, transcripts, root="."):
     xs = _post_exchanges(slug, transcripts, root)
     ids = [f"x{n}" for n in range(1, len(xs) + 1)]
     path = root / slug / "trace.jsonl"
-    last, have = 0, {}
+    last, have, written_ids, published = 0, {}, set(), False
     if path.exists():
         for line in path.read_text().splitlines():
             r = json.loads(line)
             for i in ([r["id"]] if r.get("type") == "exchange" else r.get("ids", []) if r.get("type") == "withheld" else []):
                 last = max(last, int(i[1:]))
+            if r.get("type") == "exchange": written_ids.add(r["id"])
+            if r.get("type") == "published": published = True; written_ids.clear()
             if r.get("type") == "snapshot":
                 have[r["after"]] = have.get(r["after"], 0) + 1
     private = _private_ids(root / slug / "post.md")
+    unknown = sorted(private - set(ids))
+    if unknown:
+        span = f"x1 to {ids[-1]}" if ids else "it has no exchanges"
+        raise ValueError(f"private names {', '.join(unknown)}, which isn't in this post ({span})")
+    late_marks = sorted(private & written_ids)
+    if late_marks:
+        undo = "delete its lines after the last published record" if published else "delete that file"
+        raise ValueError(f"private names {', '.join(late_marks)}, already written to {path}: {undo}, then import again")
     # full sequence of items
     items = []
     for n, x in enumerate(xs, 1):
